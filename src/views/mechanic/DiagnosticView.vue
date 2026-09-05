@@ -68,6 +68,12 @@ function addPhoto(stage, photo) { orders.addPhoto(order.value.id, stage, photo) 
           </div>
         </div>
         <p class="text-muted" style="margin-top:8px;font-size:.89rem;">{{ order.description }}</p>
+        <div v-if="order.photosRequest?.length" class="request-photos">
+          <div class="eyebrow" style="margin-bottom:6px;">Fotos enviadas por el cliente</div>
+          <div class="photo-grid request-grid">
+            <img v-for="(p,i) in order.photosRequest" :key="i" :src="p.url" :alt="p.name" @click="ui.openLightbox(p.url)">
+          </div>
+        </div>
         <JobTicketStepper :status="order.status" />
       </div>
     </div>
@@ -81,6 +87,7 @@ function addPhoto(stage, photo) { orders.addPhoto(order.value.id, stage, photo) 
               <td class="mono">{{ h.id }}</td>
               <td>{{ h.statusHistory[0].at }}</td>
               <td>{{ h.serviceType }}</td>
+              <td class="text-muted" style="max-width:280px;">{{ h.diagnostic?.notes || 'Sin diagnóstico registrado' }}</td>
               <td><StatusBadge :status="h.status" /></td>
             </tr>
           </tbody>
@@ -146,6 +153,8 @@ function addPhoto(stage, photo) { orders.addPhoto(order.value.id, stage, photo) 
 </template>
 
 <style scoped>
+.request-photos{ margin:14px 0 4px; }
+.request-grid{ max-width:360px; }
 .stage-label{ font-size:.74rem; font-weight:700; text-transform:uppercase; color:var(--muted); margin-bottom:6px; }
 .photo-grid{ display:grid; grid-template-columns:repeat(3,1fr); gap:6px; margin-bottom:8px; }
 .photo-grid img{ width:100%; aspect-ratio:1; object-fit:cover; border-radius:8px; border:1px solid var(--border); cursor:zoom-in; }

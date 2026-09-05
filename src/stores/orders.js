@@ -73,6 +73,7 @@ export const useOrdersStore = defineStore('orders', {
         clientId: req.clientId,
         vehicleId: req.vehicleId,
         mechanicId,
+        assignmentHistory: [{ mechanicId, at: nowStr() }],
         serviceType: req.serviceType,
         description: req.description,
         photosRequest: req.photos,
@@ -104,7 +105,7 @@ export const useOrdersStore = defineStore('orders', {
       const o = this.orderById(orderId)
       if (!o) return
       const version = o.budgets.length + 1
-      o.budgets.push({ version, items, taxRate: Number(taxRate), createdAt: nowStr(), status: 'pendiente', clientComment: '' })
+      o.budgets.push({ version, items, taxRate: Number(taxRate), createdAt: nowStr(), status: 'pendiente', clientComment: '', decidedAt: null })
       this._pushStatus(o, 'presupuesto')
     },
 
@@ -122,18 +123,25 @@ export const useOrdersStore = defineStore('orders', {
       const o = this.orderById(orderId)
       if (!o) return
       const b = this.currentBudget(o)
-      if (b) b.status = 'aprobado'
-      // RF-32: descuenta del inventario los repuestos utilizados que coincidan por nombre en el inventario
+      if (!b) return { ok: false, message: 'No hay un presupuesto para aprobar.' }
+      if (b.status === 'aprobado') return { ok: true }
+
       const inv = useInventoryStore()
-      if (b) {
-        b.items.forEach(it => {
-          const match = inv.parts.find(p => p.name.toLowerCase() === it.label.toLowerCase())
-          if (match) inv.deduct(match.id, it.qty, o.id)
-        })
-      }
+      const stockItems = b.items.map(it => ({
+        item: it,
+        part: it.partId ? inv.byId(it.partId) : inv.parts.find(p => p.name.toLowerCase() === String(it.label).toLowerCase()),
+      })).filter(x => x.part)
+      const shortage = stockItems.find(x => Number(x.item.qty) > x.part.stock)
+      if (shortage) return { ok: false, message: `No hay suficiente stock de "${shortage.part.name}". Disponible: ${shortage.part.stock}.` }
+
+      b.status = 'aprobado'
+      b.decidedAt = nowStr()
+      // RF-27: descontar por ID de repuesto cuando exista; fallback por nombre para datos sembrados antiguos.
+      stockItems.forEach(({ item, part }) => inv.deduct(part.id, Number(item.qty) || 0, o.id))
       this._pushStatus(o, 'aprobado')
       const notif = useNotificationsStore()
       notif.push('u-admin-1', `El cliente aprobó el presupuesto de la orden ${o.id}.`, o.id)
+      return { ok: true }
     },
 
     // RF-07: cliente rechaza con comentario
@@ -141,7 +149,7 @@ export const useOrdersStore = defineStore('orders', {
       const o = this.orderById(orderId)
       if (!o) return
       const b = this.currentBudget(o)
-      if (b) { b.status = 'rechazado'; b.clientComment = comment || '' }
+      if (b) { b.status = 'rechazado'; b.clientComment = comment || ''; b.decidedAt = nowStr() }
       this._pushStatus(o, 'rechazado')
       const notif = useNotificationsStore()
       notif.push('u-admin-1', `El cliente rechazó el presupuesto de la orden ${o.id}${comment ? ': "' + comment + '"' : '.'}`, o.id)
@@ -152,7 +160,7 @@ export const useOrdersStore = defineStore('orders', {
       const o = this.orderById(orderId)
       if (!o) return
       const version = o.budgets.length + 1
-      o.budgets.push({ version, items, taxRate: Number(taxRate), createdAt: nowStr(), status: 'pendiente', clientComment: '' })
+      o.budgets.push({ version, items, taxRate: Number(taxRate), createdAt: nowStr(), status: 'pendiente', clientComment: '', decidedAt: null })
       this._pushStatus(o, 'presupuesto')
     },
 
@@ -175,14 +183,17 @@ export const useOrdersStore = defineStore('orders', {
     // RF-16: asignar / reasignar orden a un mecánico
     assignMechanic(orderId, mechanicId) {
       const o = this.orderById(orderId)
-      if (o) o.mechanicId = mechanicId
+      if (!o || o.mechanicId === mechanicId) return
+      o.mechanicId = mechanicId
+      if (!o.assignmentHistory) o.assignmentHistory = []
+      o.assignmentHistory.push({ mechanicId, at: nowStr() })
     },
 
     // RF-35: calificar servicio (solo una vez, orden entregada)
     rateOrder(orderId, { stars, comment }) {
       const o = this.orderById(orderId)
       if (!o || o.rating) return
-      o.rating = { stars, comment }
+      o.rating = { stars, comment, at: nowStr() }
     },
 
     _pushStatus(order, status, comment = '') {

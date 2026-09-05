@@ -6,6 +6,7 @@ import { useOrdersStore } from '../../stores/orders'
 import { useCatalogStore } from '../../stores/catalog'
 import { useUiStore } from '../../stores/ui'
 import FileDrop from '../../components/ui/FileDrop.vue'
+import { parseEsDate } from '../../utils/format'
 
 const auth = useAuthStore()
 const vehiclesStore = useVehiclesStore()
@@ -14,6 +15,9 @@ const catalog = useCatalogStore()
 const ui = useUiStore()
 
 const myVehicles = computed(() => vehiclesStore.byOwner(auth.currentUser.id))
+const myRequests = computed(() => orders.requests
+  .filter(r => r.clientId === auth.currentUser.id)
+  .sort((a, b) => (parseEsDate(b.createdAt)?.getTime() || 0) - (parseEsDate(a.createdAt)?.getTime() || 0)))
 
 const form = reactive({
   vehicleId: myVehicles.value[0]?.id || '',
@@ -24,19 +28,29 @@ const form = reactive({
 const serviceTypes = ['Mantenimiento preventivo', 'Reparación', 'Revisión', 'Diagnóstico general']
 const sent = ref(false)
 const lastRequest = ref(null)
+const expandedRequestId = ref(null)
 
 function addPhoto(p) { form.photos.push(p) }
 function removePhoto(i) { form.photos.splice(i, 1) }
+function vehicleLabel(id) {
+  const v = vehiclesStore.byId(id)
+  return v ? `${v.brand} ${v.model} — ${v.plate}` : 'Vehículo no disponible'
+}
+function toggleRequest(id) { expandedRequestId.value = expandedRequestId.value === id ? null : id }
 
-// RF-01/02: crear solicitud con vehículo, tipo de servicio, descripción y fotos
+// RF-01/02: crear solicitud con vehículo, tipo, descripción y fotos.
 function submit() {
   if (!form.vehicleId || !form.description.trim()) { ui.showToast('Completá el vehículo y la descripción del problema.', 'error'); return }
   const req = orders.createRequest(auth.currentUser.id, {
-    vehicleId: form.vehicleId, serviceType: form.serviceType, description: form.description, photos: form.photos,
+    vehicleId: form.vehicleId,
+    serviceType: form.serviceType,
+    description: form.description.trim(),
+    photos: form.photos,
   })
   lastRequest.value = req
   sent.value = true
-  ui.showToast('Solicitud enviada al taller ✔') // HU-02: confirmación
+  expandedRequestId.value = req.id
+  ui.showToast('Solicitud enviada al taller ✔')
   form.description = ''
   form.photos = []
 }
@@ -44,8 +58,7 @@ function newRequest() { sent.value = false; lastRequest.value = null }
 </script>
 
 <template>
-  <div style="max-width:620px;">
-    <!-- HU-02: confirmación tras enviar -->
+  <div style="max-width:760px;">
     <div v-if="sent" class="card">
       <div class="card-body" style="text-align:center;padding:40px 24px;">
         <i class="bi bi-check-circle-fill" style="font-size:2.6rem;color:var(--green);"></i>
@@ -84,13 +97,46 @@ function newRequest() { sent.value = false; lastRequest.value = null }
           <FileDrop @add="addPhoto" />
           <div v-if="form.photos.length" class="photo-row">
             <div class="photo-thumb" v-for="(p, i) in form.photos" :key="i">
-              <img :src="p.url" :alt="p.name">
-              <button @click="removePhoto(i)"><i class="bi bi-x"></i></button>
+              <img :src="p.url" :alt="p.name" @click="ui.openLightbox(p.url)">
+              <button type="button" @click="removePhoto(i)"><i class="bi bi-x"></i></button>
             </div>
           </div>
         </div>
         <button class="btn btn-primary btn-block" :disabled="!myVehicles.length" @click="submit"><i class="bi bi-send-check"></i> Enviar solicitud</button>
-        <p class="field-hint" style="text-align:center;">Después de que el taller revise tu solicitud, vas a poder agendar una cita desde "Mis citas".</p>
+        <p class="field-hint" style="text-align:center;">Después de que el taller revise tu solicitud, podés asociarla a una cita desde "Mis citas".</p>
+      </div>
+    </div>
+
+    <!-- HU-01/HU-02: el cliente puede consultar sus solicitudes enviadas en cualquier momento. -->
+    <div class="card" style="margin-top:20px;">
+      <div class="card-body">
+        <div class="flex-between" style="margin-bottom:12px;">
+          <div class="eyebrow">Mis solicitudes</div>
+          <span class="badge b-diag">{{ myRequests.length }}</span>
+        </div>
+        <div v-if="myRequests.length" class="request-list">
+          <div v-for="r in myRequests" :key="r.id" class="request-item">
+            <button class="request-head" type="button" @click="toggleRequest(r.id)">
+              <span>
+                <b class="mono">{{ r.id }}</b>
+                <span class="text-muted"> · {{ r.createdAt }} · {{ vehicleLabel(r.vehicleId) }}</span>
+              </span>
+              <span class="flex gap-8" style="align-items:center;">
+                <span class="badge" :class="r.status === 'pendiente' ? 'b-solicitud' : 'b-listo'">{{ r.status === 'pendiente' ? 'Solicitud enviada' : 'Convertida en orden' }}</span>
+                <i class="bi" :class="expandedRequestId === r.id ? 'bi-chevron-up' : 'bi-chevron-down'"></i>
+              </span>
+            </button>
+            <div v-if="expandedRequestId === r.id" class="request-detail">
+              <div><b>{{ r.serviceType }}</b></div>
+              <p class="text-muted">{{ r.description }}</p>
+              <div v-if="r.photos.length" class="request-photos">
+                <img v-for="(p,i) in r.photos" :key="i" :src="p.url" :alt="p.name" @click="ui.openLightbox(p.url)">
+              </div>
+              <p v-else class="field-hint">Sin fotografías adjuntas.</p>
+            </div>
+          </div>
+        </div>
+        <p v-else class="text-muted" style="font-size:.86rem;">Todavía no has enviado solicitudes.</p>
       </div>
     </div>
 
@@ -110,7 +156,14 @@ function newRequest() { sent.value = false; lastRequest.value = null }
 
 <style scoped>
 .photo-row{ display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; }
-.photo-thumb{ position:relative; width:64px; height:64px; border-radius:8px; overflow:hidden; border:1px solid var(--border); }
-.photo-thumb img{ width:100%; height:100%; object-fit:cover; }
-.photo-thumb button{ position:absolute; top:2px; right:2px; background:rgba(0,0,0,.6); color:#fff; border:none; border-radius:50%; width:18px; height:18px; font-size:.7rem; line-height:1; }
+.photo-thumb{ position:relative; width:64px; height:64px; border-radius:8px; border:1px solid var(--border); }
+.photo-thumb img{ width:100%; height:100%; object-fit:cover; border-radius:8px; cursor:zoom-in; }
+.photo-thumb button{ position:absolute; top:-5px; right:-5px; background:rgba(0,0,0,.78); color:#fff; border:none; border-radius:50%; width:20px; height:20px; font-size:.7rem; line-height:1; }
+.request-list{ display:flex; flex-direction:column; gap:8px; }
+.request-item{ border:1px solid var(--border); border-radius:10px; overflow:hidden; }
+.request-head{ width:100%; border:0; background:var(--card); padding:11px 12px; display:flex; justify-content:space-between; align-items:center; gap:12px; text-align:left; color:inherit; }
+.request-detail{ padding:12px; border-top:1px solid var(--border); background:var(--paper); font-size:.86rem; }
+.request-detail p{ margin:6px 0 10px; }
+.request-photos{ display:grid; grid-template-columns:repeat(auto-fill,minmax(80px,1fr)); gap:8px; }
+.request-photos img{ width:100%; aspect-ratio:1; object-fit:cover; border-radius:8px; cursor:zoom-in; border:1px solid var(--border); }
 </style>

@@ -13,6 +13,7 @@ export const useAuthStore = defineStore('auth', {
     currentUser: (state) => state.users.find(u => u.id === state.currentUserId) || null,
     isLoggedIn: (state) => !!state.currentUserId,
     mechanics: (state) => state.users.filter(u => u.role === 'mecanico'),
+    activeMechanics: (state) => state.users.filter(u => u.role === 'mecanico' && u.active),
     clients: (state) => state.users.filter(u => u.role === 'cliente'),
   },
   actions: {
@@ -54,6 +55,22 @@ export const useAuthStore = defineStore('auth', {
       this.resetToken = null
       return { ok: true }
     },
+    // RF-20: edición segura del perfil sin permitir cambiar el rol.
+    updateProfile(userId, { name, email, phone }) {
+      const user = this.users.find(u => u.id === userId)
+      if (!user) return { ok: false, message: 'Usuario no encontrado.' }
+      const cleanName = String(name || '').trim()
+      const cleanEmail = String(email || '').trim().toLowerCase()
+      const cleanPhone = String(phone || '').trim()
+      if (!cleanName) return { ok: false, message: 'El nombre es obligatorio.' }
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) return { ok: false, message: 'Ingresá un correo válido.' }
+      if (cleanPhone && !/^[0-9+()\-\s]{7,20}$/.test(cleanPhone)) return { ok: false, message: 'Ingresá un teléfono válido.' }
+      const duplicate = this.users.some(u => u.id !== userId && u.email.toLowerCase() === cleanEmail)
+      if (duplicate) return { ok: false, message: 'Ese correo ya está registrado por otro usuario.' }
+      Object.assign(user, { name: cleanName, email: cleanEmail, phone: cleanPhone })
+      return { ok: true }
+    },
+
     // RF-30: administrador crea/gestiona cuentas de mecánicos
     createMechanic({ name, email, phone }) {
       const exists = this.users.some(u => u.email.toLowerCase() === email.trim().toLowerCase())

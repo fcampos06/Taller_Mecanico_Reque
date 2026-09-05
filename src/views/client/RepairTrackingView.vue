@@ -7,6 +7,7 @@ import { useMessagesStore } from '../../stores/messages'
 import { useUiStore } from '../../stores/ui'
 import JobTicketStepper from '../../components/ui/JobTicketStepper.vue'
 import StarRating from '../../components/ui/StarRating.vue'
+import FileDrop from '../../components/ui/FileDrop.vue'
 import { toOrderId, formatCRC } from '../../utils/format'
 
 const props = defineProps({ id: String })
@@ -15,7 +16,10 @@ const vehiclesStore = useVehiclesStore()
 const ordersStore = useOrdersStore()
 const messagesStore = useMessagesStore()
 const ui = useUiStore()
-const order = computed(() => ordersStore.orderById(toOrderId(props.id)))
+const order = computed(() => {
+  const found = ordersStore.orderById(toOrderId(props.id))
+  return found && found.clientId === auth.currentUser?.id ? found : null
+})
 const vehicle = computed(() => order.value ? vehiclesStore.byId(order.value.vehicleId) : null)
 const budget = computed(() => order.value ? ordersStore.currentBudget(order.value) : null)
 const budgetTotal = computed(() => {
@@ -30,7 +34,8 @@ const expandedVersion = ref(null)
 function toggleVersion(v) { expandedVersion.value = expandedVersion.value === v ? null : v }
 
 function approve() {
-  ordersStore.approveBudget(order.value.id)
+  const result = ordersStore.approveBudget(order.value.id)
+  if (result?.ok === false) { ui.showToast(result.message, 'error'); return }
   ui.showToast('Presupuesto aprobado en 1 clic ✔')
 }
 const rejectComment = ref('')
@@ -45,12 +50,18 @@ function reject() {
 // ---- chat (RF-29) ----
 const messages = computed(() => messagesStore.forOrder(order.value?.id))
 const chatInput = ref('')
+const chatAttachments = ref([])
 const chatBox = ref(null)
+function addChatAttachment(photo) { chatAttachments.value.push(photo) }
+function removeChatAttachment(index) { chatAttachments.value.splice(index, 1) }
 function sendMessage() {
   const text = chatInput.value.trim()
-  if (!text) return
-  messagesStore.send(order.value.id, { from: 'cliente', authorName: auth.currentUser.name, text })
+  if (!text && !chatAttachments.value.length) return
+  messagesStore.send(order.value.id, {
+    from: 'cliente', authorName: auth.currentUser.name, text, attachments: chatAttachments.value,
+  })
   chatInput.value = ''
+  chatAttachments.value = []
   nextTick(() => { if (chatBox.value) chatBox.value.scrollTop = chatBox.value.scrollHeight })
 }
 
@@ -159,6 +170,7 @@ function submitRating() {
               <i :class="budget.status === 'aprobado' ? 'bi bi-check-lg' : 'bi bi-x-lg'"></i>
               {{ budget.status === 'aprobado' ? 'Aprobado' : 'Rechazado' }}
             </span>
+            <span class="text-muted" style="font-size:.84rem;">{{ budget.decidedAt || 'Decisión registrada' }}</span>
             <span v-if="budget.clientComment" class="text-muted" style="font-size:.84rem;">"{{ budget.clientComment }}"</span>
           </div>
 
@@ -185,6 +197,7 @@ function submitRating() {
                   <span>Total (con {{ (b.taxRate*100).toFixed(0) }}% imp.)</span>
                   <span class="mono">{{ formatCRC(b.items.reduce((s,i)=>s+i.qty*i.price,0) * (1+b.taxRate)) }}</span>
                 </div>
+                <p v-if="b.decidedAt" class="text-muted" style="font-size:.78rem;margin-top:6px;">Decisión: {{ b.decidedAt }}</p>
                 <p v-if="b.clientComment" class="text-muted" style="font-size:.82rem;margin-top:6px;">Comentario del cliente: "{{ b.clientComment }}"</p>
               </div>
             </div>
@@ -215,13 +228,23 @@ function submitRating() {
           <div class="eyebrow" style="margin-bottom:10px;">Mensajes con el taller</div>
           <div class="chat-box" ref="chatBox">
             <div class="chat-bubble" :class="m.from === 'cliente' ? 'mine' : 'theirs'" v-for="(m,i) in messages" :key="i">
-              <div>{{ m.text }}</div>
-              <div class="chat-meta">{{ m.at }}</div>
+              <div v-if="m.text">{{ m.text }}</div>
+              <div v-if="m.attachments?.length" class="chat-images">
+                <img v-for="(a,ai) in m.attachments" :key="ai" :src="a.url" :alt="a.name" @click="ui.openLightbox(a.url)">
+              </div>
+              <div class="chat-meta">{{ m.authorName || (m.from === 'cliente' ? 'Cliente' : 'Taller') }} · {{ m.at }}</div>
             </div>
           </div>
+          <div v-if="chatAttachments.length" class="pending-images">
+            <div v-for="(a,i) in chatAttachments" :key="i" class="pending-image">
+              <img :src="a.url" :alt="a.name">
+              <button type="button" @click="removeChatAttachment(i)"><i class="bi bi-x"></i></button>
+            </div>
+          </div>
+          <FileDrop label="Adjuntar imagen al mensaje" @add="addChatAttachment" />
           <form class="chat-form" @submit.prevent="sendMessage">
             <input v-model="chatInput" placeholder="Escribí un mensaje...">
-            <button class="btn btn-primary btn-icon" type="submit"><i class="bi bi-send-fill"></i></button>
+            <button class="btn btn-primary btn-icon" type="submit" :disabled="!chatInput.trim() && !chatAttachments.length"><i class="bi bi-send-fill"></i></button>
           </form>
         </div>
       </div>
@@ -271,6 +294,12 @@ function submitRating() {
 .chat-bubble.mine{ background:var(--asphalt); color:#fff; margin-left:auto; border-bottom-right-radius:3px; }
 .chat-bubble.theirs{ background:var(--paper); border:1px solid var(--border); border-bottom-left-radius:3px; }
 .chat-meta{ font-size:.68rem; opacity:.65; margin-top:4px; }
+.chat-images{ display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px; margin-top:8px; }
+.chat-images img{ width:100%; aspect-ratio:1; object-fit:cover; border-radius:8px; cursor:zoom-in; }
+.pending-images{ display:flex; gap:7px; flex-wrap:wrap; margin:8px 0; }
+.pending-image{ width:54px; height:54px; position:relative; }
+.pending-image img{ width:100%; height:100%; object-fit:cover; border-radius:8px; border:1px solid var(--border); }
+.pending-image button{ position:absolute; right:-5px; top:-5px; width:20px; height:20px; border:0; border-radius:50%; background:var(--asphalt); color:#fff; display:grid; place-items:center; }
 .chat-form{ display:flex; gap:8px; margin-top:12px; }
 .chat-form input{ flex:1; border:1.5px solid var(--border); border-radius:10px; padding:10px 13px; font-family:inherit; font-size:.87rem; }
 .chat-form input:focus{ outline:none; border-color:var(--orange); }

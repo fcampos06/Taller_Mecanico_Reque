@@ -13,12 +13,13 @@ export function toOrderId(routeId) {
 // Parser de fechas en formato "DD mes" en español (ej. "19 ago"). Date() nativo de JS
 // solo reconoce abreviaciones en inglés, y varias como "ago" (agosto) no coinciden con
 // ninguna en inglés, así que se resuelven a mano en vez de dejarlo en manos de new Date().
-const ES_MONTHS = { ene: 0, feb: 1, mar: 2, abr: 3, may: 4, jun: 5, jul: 6, ago: 7, sep: 8, oct: 9, nov: 10, dic: 11 }
+const ES_MONTHS = { ene: 0, feb: 1, mar: 2, abr: 3, may: 4, jun: 5, jul: 6, ago: 7, sep: 8, sept: 8, oct: 9, nov: 10, dic: 11 }
 export function parseEsDate(str, year = 2026) {
-  const match = String(str).match(/(\d{1,2})\s+([a-zA-Zé]{3})/)
+  const match = String(str).toLowerCase().match(/(\d{1,2})\s+([a-záéíóúñ]{3,4})/i)
   if (!match) return null
   const day = Number(match[1])
-  const month = ES_MONTHS[match[2].toLowerCase()]
+  const monthKey = match[2].toLowerCase().replace('.', '')
+  const month = ES_MONTHS[monthKey]
   if (month === undefined) return null
   return new Date(year, month, day)
 }

@@ -318,9 +318,10 @@ export const seedNotifications = [
 ]
 
 export const maintenanceRules = [
-  { service: 'Cambio de aceite y filtro', everyKm: 5000 },
-  { service: 'Alineado y balanceo', everyKm: 10000 },
-  { service: 'Revisión pre-vacaciones (RTV)', everyKm: null },
+  // RF-24: la próxima fecha se calcula desde el último servicio registrado.
+  { service: 'Cambio de aceite y filtro', everyMonths: 3, match: ['cambio de aceite', 'mantenimiento preventivo'] },
+  { service: 'Alineado y balanceo', everyMonths: 6, match: ['alineado y balanceo'] },
+  { service: 'Revisión preventiva general', everyMonths: 12, match: ['revisión pre-vacaciones', 'diagnóstico general'] },
 ]
 
 // RF-27/HU-53/HU-50: bitácora de movimientos de inventario ya existente (salidas por órdenes pasadas + un reabastecimiento)

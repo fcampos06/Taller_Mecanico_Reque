@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue'
 import { useOrdersStore } from '../../stores/orders'
 import { useAuthStore } from '../../stores/auth'
+import { parseEsDate } from '../../utils/format'
 
 const orders = useOrdersStore()
 const auth = useAuthStore()
@@ -10,10 +11,17 @@ const rated = computed(() => orders.orders.filter(o => o.rating))
 const mechanicFilter = ref('')
 const serviceFilter = ref('')
 const serviceTypes = computed(() => [...new Set(rated.value.map(o => o.serviceType))])
-const filtered = computed(() => rated.value.filter(o =>
-  (!mechanicFilter.value || o.mechanicId === mechanicFilter.value) &&
-  (!serviceFilter.value || o.serviceType === serviceFilter.value)
-))
+const filtered = computed(() => rated.value
+  .filter(o =>
+    (!mechanicFilter.value || o.mechanicId === mechanicFilter.value) &&
+    (!serviceFilter.value || o.serviceType === serviceFilter.value)
+  )
+  .sort((a, b) => {
+    const ad = parseEsDate(a.rating?.at || a.statusHistory.at(-1)?.at)?.getTime() || 0
+    const bd = parseEsDate(b.rating?.at || b.statusHistory.at(-1)?.at)?.getTime() || 0
+    return bd - ad
+  })
+)
 
 // RF-33: promedio general
 const average = computed(() => {
@@ -45,16 +53,17 @@ const average = computed(() => {
         </select>
       </div>
       <table>
-        <thead><tr><th>Orden</th><th>Cliente</th><th>Mecánico</th><th>Calificación</th><th>Comentario</th></tr></thead>
+        <thead><tr><th>Fecha</th><th>Orden</th><th>Cliente</th><th>Mecánico</th><th>Calificación</th><th>Comentario</th></tr></thead>
         <tbody>
           <tr v-for="o in filtered" :key="o.id">
+            <td class="mono">{{ o.rating?.at || o.statusHistory.at(-1)?.at }}</td>
             <td class="mono">{{ o.id }}</td>
             <td>{{ auth.userById(o.clientId)?.name }}</td>
             <td>{{ auth.userById(o.mechanicId)?.name }}</td>
             <td class="mono">{{ '★'.repeat(o.rating.stars) }}{{ '☆'.repeat(5 - o.rating.stars) }}</td>
             <td class="text-muted">{{ o.rating.comment || '—' }}</td>
           </tr>
-          <tr v-if="!filtered.length"><td colspan="5" style="text-align:center;color:var(--muted);padding:24px;">Sin calificaciones todavía.</td></tr>
+          <tr v-if="!filtered.length"><td colspan="6" style="text-align:center;color:var(--muted);padding:24px;">Sin calificaciones todavía.</td></tr>
         </tbody>
       </table>
     </div>

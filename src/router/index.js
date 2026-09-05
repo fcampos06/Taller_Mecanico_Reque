@@ -1,5 +1,7 @@
 import { createRouter, createWebHashHistory } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
+import { useOrdersStore } from '../stores/orders'
+import { toOrderId } from '../utils/format'
 
 const routes = [
   { path: '/', redirect: '/login' },
@@ -62,6 +64,16 @@ router.beforeEach((to) => {
 
   if (to.meta.roles && !to.meta.roles.includes(auth.currentUser.role)) {
     return HOME_BY_ROLE[auth.currentUser.role]
+  }
+
+  // RF-18: además del rol, proteger la propiedad/asignación de órdenes específicas.
+  if (to.name === 'cliente-orden') {
+    const order = useOrdersStore().orderById(toOrderId(to.params.id))
+    if (!order || order.clientId !== auth.currentUser.id) return HOME_BY_ROLE.cliente
+  }
+  if (to.name === 'mecanico-diagnostico') {
+    const order = useOrdersStore().orderById(toOrderId(to.params.id))
+    if (!order || order.mechanicId !== auth.currentUser.id) return HOME_BY_ROLE.mecanico
   }
 
   return true

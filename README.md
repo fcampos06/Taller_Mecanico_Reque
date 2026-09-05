@@ -80,23 +80,26 @@ El prototipo cubre los 10 alcances del documento de requerimientos:
 
 1. **Solicitudes y diagnóstico** — creación de solicitud con fotos, conversión en orden,
    diagnóstico técnico con checklist.
-2. **Presupuestos** — generación desde inventario/manual, envío, aprobación/rechazo con
-   comentario, historial de versiones.
-3. **Agenda y carga de mecánicos** — citas con horarios disponibles, reprogramar/cancelar,
-   calendario del taller filtrable por mecánico, asignación/reasignación de órdenes.
+2. **Presupuestos** — generación con servicios/repuestos/mano de obra, envío, aprobación/rechazo
+   con fecha y comentario, historial de versiones y validación de stock.
+3. **Agenda y carga de mecánicos** — citas con motivo y horarios disponibles, reprogramar/cancelar
+   con motivo opcional, calendario filtrable y asignación/reasignación solo a mecánicos activos.
 4. **Seguimiento de la reparación** — línea de tiempo de estados con comentarios, evidencia
    fotográfica antes/durante/después.
 5. **Autenticación y perfiles** — registro, login, recuperación de contraseña, control de
    acceso por rol, edición de perfil.
 6. **Vehículos e historial** — alta/edición/baja de vehículos (validando placa duplicada y
-   bloqueando baja con órdenes activas), historial por vehículo, recordatorios preventivos.
+   bloqueando baja con órdenes activas), historial técnico y recordatorios calculados desde el
+   último servicio registrado.
 7. **Inventario** — alta/edición de repuestos, alerta de stock bajo, descuento automático al
    aprobar un presupuesto, búsqueda y filtro.
-8. **Mensajería y notificaciones** — chat por orden, notificaciones por evento relevante.
+8. **Mensajería y notificaciones** — chat por orden con texto e imágenes, y notificaciones por
+   eventos relevantes.
 9. **Catálogo y calificaciones** — catálogo de servicios/tarifas administrable, calificación
    de 1 a 5 estrellas con comentario (una sola vez por orden).
-10. **Dashboard y reportes** — indicadores operativos, carga por mecánico, reporte financiero
-    por periodo desglosado en repuestos y mano de obra.
+10. **Dashboard y reportes** — indicadores operativos, promedio de calificaciones, carga por
+    mecánico e ingresos dinámicos; reporte por periodo desglosado en servicios, repuestos y
+    mano de obra.
 
 ## Notas
 

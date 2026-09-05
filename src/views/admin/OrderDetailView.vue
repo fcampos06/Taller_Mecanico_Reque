@@ -23,6 +23,11 @@ const order = computed(() => orders.orderById(toOrderId(props.id)))
 const vehicle = computed(() => order.value ? vehiclesStore.byId(order.value.vehicleId) : null)
 const client = computed(() => order.value ? auth.userById(order.value.clientId) : null)
 const budget = computed(() => order.value ? orders.currentBudget(order.value) : null)
+const assignmentHistory = computed(() => {
+  if (!order.value) return []
+  if (order.value.assignmentHistory?.length) return order.value.assignmentHistory
+  return [{ mechanicId: order.value.mechanicId, at: order.value.statusHistory[0]?.at || '—' }]
+})
 
 // HU-30: historial del vehículo (contexto antes de una nueva reparación), sin incluir la orden actual
 const vehicleHistory = computed(() => {
@@ -62,13 +67,19 @@ function updateStatus() {
 }
 
 // ---- presupuesto (RF-05/RF-06/RF-08) ----
-const budgetItems = ref([{ label: '', qty: 1, price: 0, partId: '' }])
+const budgetItems = ref([{ kind: 'service', label: '', qty: 1, price: 0, partId: '' }])
 const taxRate = ref(0.13)
-function addLine() { budgetItems.value.push({ label: '', qty: 1, price: 0, partId: '' }) }
+function addLine() { budgetItems.value.push({ kind: 'service', label: '', qty: 1, price: 0, partId: '' }) }
+function addLaborLine() {
+  budgetItems.value.push({
+    kind: 'labor', label: 'Mano de obra', qty: 1,
+    price: Number(order.value?.diagnostic?.laborEstimate) || 0, partId: '',
+  })
+}
 function removeLine(i) { budgetItems.value.splice(i, 1) }
 function fillFromInventory(line) {
   const p = inventory.byId(line.partId)
-  if (p) { line.label = p.name; line.price = p.price }
+  if (p) { line.kind = 'part'; line.label = p.name; line.price = p.price }
 }
 const stockWarning = computed(() =>
   budgetItems.value.filter(l => l.partId).map(l => {
@@ -80,12 +91,17 @@ const subtotalDraft = computed(() => budgetItems.value.reduce((s, l) => s + (Num
 
 function generateAndSend() {
   if (stockWarning.value.length) { ui.showToast(stockWarning.value[0], 'error'); return }
-  const items = budgetItems.value.filter(l => l.label).map(l => ({ label: l.label, qty: Number(l.qty), price: Number(l.price) }))
+  const invalidLine = budgetItems.value.find(l => l.label && (!Number.isFinite(Number(l.qty)) || Number(l.qty) <= 0 || !Number.isFinite(Number(l.price)) || Number(l.price) < 0))
+  if (invalidLine) { ui.showToast('Cada línea debe tener una cantidad mayor a 0 y un precio válido.', 'error'); return }
+  const items = budgetItems.value.filter(l => l.label).map(l => ({
+    kind: l.kind || (/mano de obra/i.test(l.label) ? 'labor' : (l.partId ? 'part' : 'service')),
+    partId: l.partId || null, label: l.label.trim(), qty: Number(l.qty) || 1, price: Number(l.price) || 0,
+  }))
   if (!items.length) { ui.showToast('Agregá al menos una línea.', 'error'); return }
   if (order.value.budgets.length === 0) orders.createBudget(order.value.id, { items, taxRate: taxRate.value })
   else orders.reviseBudget(order.value.id, { items, taxRate: taxRate.value })
   orders.sendBudget(order.value.id)
-  budgetItems.value = [{ label: '', qty: 1, price: 0, partId: '' }]
+  budgetItems.value = [{ kind: 'service', label: '', qty: 1, price: 0, partId: '' }]
   ui.showToast('Presupuesto enviado al cliente ✔')
 }
 
@@ -95,12 +111,18 @@ function addPhoto(stage, photo) { orders.addPhoto(order.value.id, stage, photo) 
 // ---- mensajes (RF-29/30) ----
 const messages = computed(() => messagesStore.forOrder(order.value?.id))
 const chatInput = ref('')
+const chatAttachments = ref([])
 const chatBox = ref(null)
+function addChatAttachment(photo) { chatAttachments.value.push(photo) }
+function removeChatAttachment(index) { chatAttachments.value.splice(index, 1) }
 function sendMessage() {
   const text = chatInput.value.trim()
-  if (!text) return
-  messagesStore.send(order.value.id, { from: 'admin', authorName: auth.currentUser.name, text })
+  if (!text && !chatAttachments.value.length) return
+  messagesStore.send(order.value.id, {
+    from: 'admin', authorName: auth.currentUser.name, text, attachments: chatAttachments.value,
+  })
   chatInput.value = ''
+  chatAttachments.value = []
   nextTick(() => { if (chatBox.value) chatBox.value.scrollTop = chatBox.value.scrollHeight })
 }
 </script>
@@ -120,13 +142,19 @@ function sendMessage() {
             <StatusBadge :status="order.status" />
           </div>
           <p class="text-muted" style="margin-top:10px;font-size:.89rem;">{{ order.description }}</p>
+          <div v-if="order.photosRequest?.length" class="request-photos">
+            <div class="eyebrow" style="margin-bottom:6px;">Fotos de la solicitud inicial</div>
+            <div class="photo-grid request-grid">
+              <img v-for="(p,i) in order.photosRequest" :key="i" :src="p.url" :alt="p.name" @click="ui.openLightbox(p.url)">
+            </div>
+          </div>
           <JobTicketStepper :status="order.status" />
 
           <div class="grid grid-2" style="margin-top:16px;">
             <div class="field">
               <label>Mecánico asignado</label>
               <select :value="order.mechanicId" @change="reassign">
-                <option v-for="m in auth.mechanics" :key="m.id" :value="m.id">{{ m.name }} ({{ orders.workloadByMechanic(m.id) }} activas)</option>
+                <option v-for="m in auth.activeMechanics" :key="m.id" :value="m.id">{{ m.name }} ({{ orders.workloadByMechanic(m.id) }} activas)</option>
               </select>
             </div>
             <div class="field">
@@ -140,6 +168,10 @@ function sendMessage() {
           <div v-if="statusForm.status" class="flex gap-8">
             <input v-model="statusForm.comment" placeholder="Nota para el cliente (opcional)" style="flex:1;border:1.5px solid var(--border);border-radius:10px;padding:9px 12px;">
             <button class="btn btn-primary btn-sm" @click="updateStatus">Actualizar</button>
+          </div>
+          <div class="assignment-history">
+            <span class="text-muted">Historial de asignación:</span>
+            <span v-for="(a,i) in assignmentHistory" :key="i">{{ auth.userById(a.mechanicId)?.name || 'Mecánico' }} <small>({{ a.at }})</small></span>
           </div>
         </div>
       </div>
@@ -171,6 +203,7 @@ function sendMessage() {
                 <td class="mono">{{ h.id }}</td>
                 <td>{{ h.statusHistory[0].at }}</td>
                 <td>{{ h.serviceType }}</td>
+                <td class="text-muted" style="max-width:280px;">{{ h.diagnostic?.notes || 'Sin diagnóstico registrado' }}</td>
                 <td><StatusBadge :status="h.status" /></td>
               </tr>
             </tbody>
@@ -224,7 +257,10 @@ function sendMessage() {
             <input class="mono" placeholder="Precio unit." v-model.number="l.price" type="number">
             <button class="btn btn-ghost btn-icon" @click="removeLine(i)"><i class="bi bi-trash"></i></button>
           </div>
-          <button class="btn btn-ghost btn-sm" @click="addLine"><i class="bi bi-plus-lg"></i> Agregar línea</button>
+          <div class="flex gap-8" style="flex-wrap:wrap;">
+            <button class="btn btn-ghost btn-sm" @click="addLine"><i class="bi bi-plus-lg"></i> Agregar repuesto/servicio</button>
+            <button class="btn btn-ghost btn-sm" @click="addLaborLine"><i class="bi bi-person-gear"></i> Agregar mano de obra</button>
+          </div>
 
           <div class="field" style="margin-top:12px;max-width:180px;">
             <label>Impuesto</label>
@@ -241,7 +277,7 @@ function sendMessage() {
           <div v-if="order.budgets.length" style="margin-top:18px;border-top:1px dashed var(--border);padding-top:12px;">
             <div class="eyebrow" style="margin-bottom:8px;">Historial de versiones</div>
             <div class="version-row" v-for="b in order.budgets" :key="b.version">
-              <span>v{{ b.version }} · {{ b.createdAt }} · {{ formatCRC(b.items.reduce((s,i)=>s+i.qty*i.price,0) * (1+b.taxRate)) }}</span>
+              <span>v{{ b.version }} · creada {{ b.createdAt }}<span v-if="b.decidedAt"> · decisión {{ b.decidedAt }}</span> · {{ formatCRC(b.items.reduce((s,i)=>s+i.qty*i.price,0) * (1+b.taxRate)) }}</span>
               <span class="badge" :class="b.status === 'aprobado' ? 'b-proceso' : b.status === 'rechazado' ? 'b-rechazado' : 'b-espera'">{{ b.status }}</span>
             </div>
           </div>
@@ -263,12 +299,23 @@ function sendMessage() {
           <div class="eyebrow" style="margin-bottom:10px;">Mensajes con {{ client?.name }}</div>
           <div class="chat-box" ref="chatBox">
             <div class="chat-bubble" :class="m.from === 'admin' ? 'mine' : 'theirs'" v-for="(m,i) in messages" :key="i">
-              <div>{{ m.text }}</div><div class="chat-meta">{{ m.at }}</div>
+              <div v-if="m.text">{{ m.text }}</div>
+              <div v-if="m.attachments?.length" class="chat-images">
+                <img v-for="(a,ai) in m.attachments" :key="ai" :src="a.url" :alt="a.name" @click="ui.openLightbox(a.url)">
+              </div>
+              <div class="chat-meta">{{ m.authorName || (m.from === 'admin' ? 'Taller' : 'Cliente') }} · {{ m.at }}</div>
             </div>
           </div>
+          <div v-if="chatAttachments.length" class="pending-images">
+            <div v-for="(a,i) in chatAttachments" :key="i" class="pending-image">
+              <img :src="a.url" :alt="a.name">
+              <button type="button" @click="removeChatAttachment(i)"><i class="bi bi-x"></i></button>
+            </div>
+          </div>
+          <FileDrop label="Adjuntar imagen al mensaje" @add="addChatAttachment" />
           <form class="chat-form" @submit.prevent="sendMessage">
             <input v-model="chatInput" placeholder="Responder...">
-            <button class="btn btn-primary btn-icon" type="submit"><i class="bi bi-send-fill"></i></button>
+            <button class="btn btn-primary btn-icon" type="submit" :disabled="!chatInput.trim() && !chatAttachments.length"><i class="bi bi-send-fill"></i></button>
           </form>
         </div>
       </div>
@@ -277,6 +324,10 @@ function sendMessage() {
 </template>
 
 <style scoped>
+.assignment-history{ display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; font-size:.76rem; }
+.assignment-history span:not(.text-muted){ background:var(--paper); border:1px solid var(--border); border-radius:999px; padding:3px 8px; }
+.request-photos{ margin:14px 0 4px; }
+.request-grid{ max-width:360px; }
 .timeline{ position:relative; padding-left:18px; }
 .tl-item{ position:relative; padding-bottom:16px; display:flex; gap:12px; }
 .tl-item:not(:last-child)::before{ content:""; position:absolute; left:-13px; top:14px; bottom:-2px; width:2px; background:var(--border); }
@@ -293,6 +344,12 @@ function sendMessage() {
 .chat-bubble.mine{ background:var(--asphalt); color:#fff; margin-left:auto; border-bottom-right-radius:3px; }
 .chat-bubble.theirs{ background:var(--paper); border:1px solid var(--border); border-bottom-left-radius:3px; }
 .chat-meta{ font-size:.68rem; opacity:.65; margin-top:4px; }
+.chat-images{ display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px; margin-top:8px; }
+.chat-images img{ width:100%; aspect-ratio:1; object-fit:cover; border-radius:8px; cursor:zoom-in; }
+.pending-images{ display:flex; gap:7px; flex-wrap:wrap; margin:8px 0; }
+.pending-image{ width:54px; height:54px; position:relative; }
+.pending-image img{ width:100%; height:100%; object-fit:cover; border-radius:8px; border:1px solid var(--border); }
+.pending-image button{ position:absolute; right:-5px; top:-5px; width:20px; height:20px; border:0; border-radius:50%; background:var(--asphalt); color:#fff; display:grid; place-items:center; }
 .chat-form{ display:flex; gap:8px; margin-top:12px; }
 .chat-form input{ flex:1; border:1.5px solid var(--border); border-radius:10px; padding:10px 13px; font-family:inherit; font-size:.87rem; }
 </style>

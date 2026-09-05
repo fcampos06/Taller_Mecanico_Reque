@@ -49,8 +49,8 @@ export const useAppointmentsStore = defineStore('appointments', {
   },
   actions: {
     // RF-09: agendar cita
-    book({ clientId, vehicleId, day, time, mechanicId, requestId = null }) {
-      const appt = { id: 'a-' + Date.now(), clientId, vehicleId, requestId, day, time, mechanicId, status: 'confirmada' }
+    book({ clientId, vehicleId, day, time, mechanicId, requestId = null, reason = '' }) {
+      const appt = { id: 'a-' + Date.now(), clientId, vehicleId, requestId, reason: String(reason || '').trim(), day, time, mechanicId, status: 'confirmada' }
       this.appointments.push(appt)
       return appt
     },
@@ -60,11 +60,13 @@ export const useAppointmentsStore = defineStore('appointments', {
       if (a) { a.day = day; a.time = time }
     },
     // RF-12: cancelar
-    cancel(id) {
+    cancel(id, reason = '') {
       const a = this.appointments.find(a => a.id === id)
       if (a) {
         a.status = 'cancelada'
-        useNotificationsStore().push('u-admin-1', `Se canceló la cita del ${a.day} a las ${a.time}.`)
+        a.cancelReason = String(reason || '').trim()
+        a.cancelledAt = new Date().toLocaleString('es-CR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
+        useNotificationsStore().push('u-admin-1', `Se canceló la cita del ${a.day} a las ${a.time}${a.cancelReason ? `: ${a.cancelReason}` : '.'}`)
       }
     },
   },

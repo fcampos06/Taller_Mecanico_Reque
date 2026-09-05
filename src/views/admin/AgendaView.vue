@@ -39,6 +39,12 @@ const byDay = computed(() => {
 function clientName(id) { return auth.userById(id)?.name || '—' }
 function vehicleLabel(id) { const v = vehiclesStore.byId(id); return v ? `${v.brand} ${v.model}` : '—' }
 function mechanicName(id) { return auth.userById(id)?.name || '—' }
+function visitReason(a) {
+  const req = a.requestId ? ordersStore.requests.find(r => r.id === a.requestId) : null
+  if (req) return req.serviceType
+  const linkedOrder = a.requestId ? ordersStore.orders.find(o => o.requestId === a.requestId) : null
+  return linkedOrder?.serviceType || a.reason || 'Atención general'
+}
 </script>
 
 <template>
@@ -68,6 +74,7 @@ function mechanicName(id) { return auth.userById(id)?.name || '—' }
             <b class="mono">{{ a.time }}</b>
             <div>{{ clientName(a.clientId) }}</div>
             <div class="veh">{{ vehicleLabel(a.vehicleId) }}</div>
+            <div class="veh" style="margin-top:4px;"><i class="bi bi-wrench-adjustable"></i> {{ visitReason(a) }}</div>
             <div class="veh" style="margin-top:4px;"><i class="bi bi-person-badge"></i> {{ mechanicName(a.mechanicId) }}</div>
           </div>
         </div>

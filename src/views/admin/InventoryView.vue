@@ -29,9 +29,13 @@ const form = reactive({ code: '', name: '', category: '', provider: '', price: 0
 function openNew() { editingId.value = null; Object.assign(form, { code: '', name: '', category: '', provider: '', price: 0, stock: 0, min: 1 }); modalOpen.value = true }
 function openEdit(p) { editingId.value = p.id; Object.assign(form, p); modalOpen.value = true }
 function save() {
-  if (!form.name || !form.code) { ui.showToast('Nombre y código son obligatorios.', 'error'); return }
-  if (editingId.value) inv.updatePart(editingId.value, { ...form, price: Number(form.price), stock: Number(form.stock), min: Number(form.min) })
-  else inv.addPart(form)
+  if (!form.name || !form.code || !form.provider) { ui.showToast('Nombre, código y proveedor son obligatorios.', 'error'); return }
+  const price = Number(form.price), stock = Number(form.stock), min = Number(form.min)
+  if (![price, stock, min].every(Number.isFinite) || price < 0 || stock < 0 || min < 0) {
+    ui.showToast('Precio, stock y mínimo deben ser números mayores o iguales a 0.', 'error'); return
+  }
+  if (editingId.value) inv.updatePart(editingId.value, { ...form, price, stock, min })
+  else inv.addPart({ ...form, price, stock, min })
   modalOpen.value = false
   ui.showToast('Inventario actualizado ✔')
 }

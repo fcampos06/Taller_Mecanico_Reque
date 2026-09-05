@@ -15,44 +15,49 @@ const ui = useUiStore()
 
 const myVehicles = computed(() => vehiclesStore.byOwner(auth.currentUser.id))
 const myAppointments = computed(() =>
-  appt.forClient(auth.currentUser.id).filter(a => a.status !== 'cancelada').map(a => ({ ...a, vehicle: vehiclesStore.byId(a.vehicleId) }))
+  appt.forClient(auth.currentUser.id).map(a => ({ ...a, vehicle: vehiclesStore.byId(a.vehicleId) }))
 )
 
 // ---- agendar nueva cita (RF-09) ----
 const modalOpen = ref(false)
 const editingId = ref(null)
-const form = reactive({ vehicleId: myVehicles.value[0]?.id || '', day: WEEK_DAYS[0], time: '', requestId: null })
+const form = reactive({ vehicleId: myVehicles.value[0]?.id || '', day: WEEK_DAYS[0], time: '', requestId: null, reason: '' })
 const mySolicitudes = computed(() => orders.requests.filter(r => r.clientId === auth.currentUser.id && r.status === 'pendiente'))
 const availableSlots = computed(() => appt.availableSlots(form.day))
 
 function openNew() {
   editingId.value = null
-  Object.assign(form, { vehicleId: myVehicles.value[0]?.id || '', day: WEEK_DAYS[0], time: '', requestId: null })
+  Object.assign(form, { vehicleId: myVehicles.value[0]?.id || '', day: WEEK_DAYS[0], time: '', requestId: null, reason: '' })
   modalOpen.value = true
 }
 function openReschedule(a) {
   editingId.value = a.id
-  Object.assign(form, { vehicleId: a.vehicleId, day: a.day, time: '', requestId: a.requestId })
+  Object.assign(form, { vehicleId: a.vehicleId, day: a.day, time: '', requestId: a.requestId, reason: a.reason || '' })
   modalOpen.value = true
 }
 function save() {
   if (!form.time) { ui.showToast('Elegí un horario disponible.', 'error'); return }
+  if (!editingId.value && !form.requestId && !form.reason.trim()) { ui.showToast('Indicá el motivo de la cita o asociá una solicitud.', 'error'); return }
   if (editingId.value) {
     appt.reschedule(editingId.value, { day: form.day, time: form.time })
     ui.showToast('Cita reprogramada ✔')
   } else {
     // asignación simple: se reparte entre los dos mecánicos según menor carga
-    const mech = auth.mechanics.reduce((a, b) => (orders.workloadByMechanic(a.id) <= orders.workloadByMechanic(b.id) ? a : b))
-    appt.book({ clientId: auth.currentUser.id, vehicleId: form.vehicleId, day: form.day, time: form.time, mechanicId: mech.id, requestId: form.requestId })
+    const mechanics = auth.activeMechanics
+    if (!mechanics.length) { ui.showToast('No hay mecánicos activos disponibles.', 'error'); return }
+    const mech = mechanics.reduce((a, b) => (orders.workloadByMechanic(a.id) <= orders.workloadByMechanic(b.id) ? a : b))
+    appt.book({ clientId: auth.currentUser.id, vehicleId: form.vehicleId, day: form.day, time: form.time, mechanicId: mech.id, requestId: form.requestId, reason: form.reason })
     ui.showToast('Cita agendada ✔')
   }
   modalOpen.value = false
 }
 function cancel(a) {
   if (!confirm('¿Cancelar esta cita?')) return
-  appt.cancel(a.id)
+  const reason = window.prompt('Motivo de cancelación (opcional):', '') ?? ''
+  appt.cancel(a.id, reason)
   ui.showToast('Cita cancelada')
 }
+
 </script>
 
 <template>
@@ -65,9 +70,11 @@ function cancel(a) {
             <h4 style="margin:4px 0 0;">{{ a.vehicle?.brand }} {{ a.vehicle?.model }}</h4>
             <span class="plate">{{ a.vehicle?.plate }}</span>
           </div>
-          <span class="badge b-proceso">Confirmada</span>
+          <span class="badge" :class="a.status === 'cancelada' ? 'b-rechazado' : 'b-proceso'">{{ a.status === 'cancelada' ? 'Cancelada' : 'Confirmada' }}</span>
         </div>
-        <div class="flex gap-8" style="margin-top:16px;">
+        <p v-if="a.reason" class="text-muted" style="font-size:.84rem;margin-top:12px;"><b>Motivo:</b> {{ a.reason }}</p>
+        <p v-if="a.status === 'cancelada' && a.cancelReason" class="text-muted" style="font-size:.84rem;margin-top:6px;"><b>Motivo de cancelación:</b> {{ a.cancelReason }}</p>
+        <div v-if="a.status !== 'cancelada'" class="flex gap-8" style="margin-top:16px;">
           <button class="btn btn-ghost btn-sm" @click="openReschedule(a)"><i class="bi bi-calendar2-week"></i> Reprogramar</button>
           <button class="btn btn-danger-ghost btn-sm" @click="cancel(a)"><i class="bi bi-x-circle"></i> Cancelar</button>
         </div>
@@ -94,6 +101,10 @@ function cancel(a) {
           <option :value="null">— Sin asociar —</option>
           <option v-for="r in mySolicitudes" :key="r.id" :value="r.id">{{ r.id }} — {{ r.serviceType }}</option>
         </select>
+      </div>
+      <div class="field" v-if="!editingId">
+        <label>Motivo de la cita {{ form.requestId ? '(opcional si ya asociás una solicitud)' : '' }}</label>
+        <input v-model="form.reason" type="text" placeholder="Ej. cambio de aceite, revisión de frenos...">
       </div>
       <div class="field">
         <label>Día</label>

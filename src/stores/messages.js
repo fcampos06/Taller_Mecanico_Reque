@@ -11,19 +11,30 @@ export const useMessagesStore = defineStore('messages', {
     forOrder: (state) => (orderId) => state.byOrder[orderId] || [],
   },
   actions: {
-    // RF-29/RF-30: enviar mensaje y notificar a la otra parte (cliente <-> taller)
-    send(orderId, { from, authorName, text }) {
+    // RF-29/RF-30: texto + imágenes dentro de la conversación de una orden.
+    send(orderId, { from, authorName, text = '', attachments = [] }) {
+      const cleanText = String(text || '').trim()
+      const cleanAttachments = (attachments || []).map(a => ({ name: a.name, url: a.url }))
+      if (!cleanText && !cleanAttachments.length) return { ok: false }
+
       if (!this.byOrder[orderId]) this.byOrder[orderId] = []
-      this.byOrder[orderId].push({ from, authorName, text, at: nowStr() })
+      this.byOrder[orderId].push({
+        from,
+        authorName,
+        text: cleanText,
+        attachments: cleanAttachments,
+        at: nowStr(),
+      })
 
       const notif = useNotificationsStore()
       const order = useOrdersStore().orderById(orderId)
-      if (!order) return
+      if (!order) return { ok: true }
       if (from === 'cliente') {
         notif.push('u-admin-1', `${authorName} te escribió sobre la orden ${orderId}.`, orderId)
       } else {
-        notif.push(order.clientId, `El taller te respondió en tu orden ${orderId}.`, orderId)
+        notif.push(order.clientId, `${authorName || 'El taller'} te respondió en tu orden ${orderId}.`, orderId)
       }
+      return { ok: true }
     },
   },
 })

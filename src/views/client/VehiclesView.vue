@@ -58,8 +58,14 @@ function openEdit(v) {
 function save() {
   error.value = ''
   if (!form.brand || !form.model || !form.plate) { error.value = 'Marca, modelo y placa son obligatorios.'; return }
+  const year = Number(form.year)
+  const km = Number(form.km)
+  const maxYear = new Date().getFullYear() + 1
+  if (!Number.isInteger(year) || year < 1950 || year > maxYear) { error.value = `Ingresá un año válido (1950-${maxYear}).`; return }
+  if (!Number.isFinite(km) || km < 0) { error.value = 'El kilometraje debe ser un número mayor o igual a 0.'; return }
   if (editingId.value) {
-    vehiclesStore.updateVehicle(editingId.value, { ...form, year: Number(form.year), km: Number(form.km) })
+    const res = vehiclesStore.updateVehicle(editingId.value, { ...form, year: Number(form.year), km: Number(form.km) })
+    if (!res.ok) { error.value = res.message; return }
     ui.showToast('Vehículo actualizado ✔')
   } else {
     const res = vehiclesStore.addVehicle(auth.currentUser.id, form)
