@@ -22,7 +22,38 @@ export const STATUS_BADGE = {
   listo: 'b-listo', entregado: 'b-listo', rechazado: 'b-rechazado',
 }
 
-let orderSeq = 515
+function nextOrderId(orders) {
+
+  const maxId =
+    orders.reduce(
+      (max, order) => {
+
+        const n =
+          Number.parseInt(
+            String(
+              order.id || ''
+            ).replace(
+              /\D/g,
+              ''
+            ),
+            10
+          )
+
+        return Number.isFinite(n)
+          ? Math.max(max, n)
+          : max
+
+      },
+      514
+    )
+
+  return `#${String(
+    maxId + 1
+  ).padStart(
+    4,
+    '0'
+  )}`
+}
 
 function nowStr() {
   const d = new Date()
@@ -68,7 +99,7 @@ export const useOrdersStore = defineStore('orders', {
       if (!req) return null
       req.status = 'convertida'
       const order = {
-        id: '#0' + (orderSeq++),
+        id: nextOrderId(this.orders),
         requestId: req.id,
         clientId: req.clientId,
         vehicleId: req.vehicleId,
