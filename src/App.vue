@@ -99,7 +99,7 @@ const isPublic = computed(() => Boolean(route.meta.public))
 
 /* Animación al cambiar de página */
 .route-page {
-  animation: routePageIn .18s ease both;
+  animation: routePageIn .18s ease backwards;
 }
 
 
